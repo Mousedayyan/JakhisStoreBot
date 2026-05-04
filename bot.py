@@ -7,7 +7,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 ADMIN_USERNAME = "jakhis27"
-PAYMENT_NAME = "JAKHIS STORE"
+PAYMENT_NAME = "IKATJANJI"
 QRIS_IMAGE_URL = "https://raw.githubusercontent.com/Mousedayyan/JakhisStoreBot/main/qris.jpg"
 
 DB_NAME = "jakhisstore.db"
@@ -31,14 +31,25 @@ def init_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS digital_stock (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER,
+        content TEXT,
+        status TEXT DEFAULT 'available'
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         first_name TEXT,
         username TEXT,
+        product_id INTEGER,
         product_name TEXT,
         price INTEGER,
         status TEXT DEFAULT 'pending_payment',
+        delivered_stock_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -62,18 +73,18 @@ def get_products():
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT id, name, price, stock FROM products ORDER BY id ASC")
-    data = cur.fetchall()
+    rows = cur.fetchall()
     conn.close()
-    return data
+    return rows
 
 
 def get_product(product_id):
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT id, name, price, stock FROM products WHERE id = ?", (product_id,))
-    data = cur.fetchone()
+    row = cur.fetchone()
     conn.close()
-    return data
+    return row
 
 
 def delete_product(product_id):
@@ -92,27 +103,99 @@ def update_stock(product_id, stock):
     conn.close()
 
 
-def create_order(user, product_name, price):
+def add_digital_stock(product_id, content):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO digital_stock (product_id, content, status) VALUES (?, ?, 'available')",
+        (product_id, content)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_stock_count(product_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM digital_stock WHERE product_id = ? AND status = 'available'",
+        (product_id,)
+    )
+    count = cur.fetchone()[0]
+    conn.close()
+    return count
+
+
+def take_available_stock(product_id):
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, content FROM digital_stock WHERE product_id = ? AND status = 'available' ORDER BY id ASC LIMIT 1",
+        (product_id,)
+    )
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        return None
+
+    stock_id, content = row
+
+    cur.execute("UPDATE digital_stock SET status = 'used' WHERE id = ?", (stock_id,))
+    conn.commit()
+    conn.close()
+
+    return stock_id, content
+
+
+def create_order(user, product_id, product_name, price):
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO orders (user_id, first_name, username, product_name, price, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (user_id, first_name, username, product_id, product_name, price, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending_payment')
         """,
         (
             user.id,
             user.first_name or "",
             user.username or "",
+            product_id,
             product_name,
-            price,
-            "pending_payment"
+            price
         )
     )
     order_id = cur.lastrowid
     conn.commit()
     conn.close()
     return order_id
+
+
+def get_order(order_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, user_id, first_name, username, product_id, product_name, price, status
+        FROM orders WHERE id = ?
+        """,
+        (order_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def update_order_paid(order_id, delivered_stock_id=None):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE orders SET status = 'paid', delivered_stock_id = ? WHERE id = ?",
+        (delivered_stock_id, order_id)
+    )
+    conn.commit()
+    conn.close()
 
 
 def update_order_status(order_id, status):
@@ -162,8 +245,11 @@ def laporan_data():
     cur.execute("SELECT COALESCE(SUM(price), 0) FROM orders WHERE status = 'paid'")
     revenue = cur.fetchone()[0]
 
+    cur.execute("SELECT COUNT(*) FROM digital_stock WHERE status = 'available'")
+    available_stock = cur.fetchone()[0]
+
     conn.close()
-    return total_products, total_orders, pending, paid, cancelled, revenue
+    return total_products, total_orders, pending, paid, cancelled, revenue, available_stock
 
 
 def admin_menu():
@@ -178,7 +264,7 @@ def admin_menu():
 def product_menu():
     keyboard = [
         ["➕ Tambah Produk", "📋 List Produk"],
-        ["⬅️ Back"]
+        ["📥 Tambah Stok Digital", "⬅️ Back"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -198,12 +284,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user.id == ADMIN_ID:
         await update.message.reply_text(
-            "👑 Admin Panel JakhisStore\n\nSilakan pilih menu:",
+            "👑 Admin Panel IKATJANJI\n\nSilakan pilih menu:",
             reply_markup=admin_menu()
         )
     else:
         await update.message.reply_text(
-            "Selamat datang di JakhisStore 👋\n\nSilakan pilih menu:",
+            "Selamat datang di IKATJANJI 👋\n\nSilakan pilih menu:",
             reply_markup=user_menu()
         )
 
@@ -241,6 +327,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        if mode == "add_stock_product_id":
+            try:
+                product_id = int(text)
+            except ValueError:
+                await update.message.reply_text("ID produk harus angka.")
+                return
+
+            product = get_product(product_id)
+            if not product:
+                await update.message.reply_text("Produk tidak ditemukan.")
+                return
+
+            context.user_data["stock_product_id"] = product_id
+            context.user_data["mode"] = "add_stock_content"
+            await update.message.reply_text(
+                "Kirim stok digitalnya.\n\n"
+                "Contoh:\n"
+                "Email: contoh@gmail.com\n"
+                "Password: 123456\n"
+                "Catatan: berlaku 1 bulan"
+            )
+            return
+
+        if mode == "add_stock_content":
+            product_id = context.user_data["stock_product_id"]
+            add_digital_stock(product_id, text)
+            context.user_data.clear()
+
+            count = get_stock_count(product_id)
+            await update.message.reply_text(
+                f"✅ Stok digital berhasil ditambahkan.\nSisa stok produk #{product_id}: {count}",
+                reply_markup=product_menu()
+            )
+            return
+
         if text == "📦 Produk":
             await update.message.reply_text(
                 "📦 Menu Produk\n\nPilih aksi:",
@@ -251,6 +372,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["mode"] = "add_product_name"
             await update.message.reply_text("Masukkan nama produk.\nContoh: Netflix Premium 1 Bulan")
 
+        elif text == "📥 Tambah Stok Digital":
+            context.user_data["mode"] = "add_stock_product_id"
+            await update.message.reply_text(
+                "Masukkan ID produk yang mau ditambahkan stok digital.\n\n"
+                "Cek ID lewat 📋 List Produk."
+            )
+
         elif text == "📋 List Produk":
             products = get_products()
 
@@ -259,6 +387,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             for product_id, name, price, stock in products:
+                stock_count = get_stock_count(product_id)
                 keyboard = [
                     [
                         InlineKeyboardButton("✅ Tersedia", callback_data=f"stock_{product_id}_Tersedia"),
@@ -270,7 +399,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
 
                 await update.message.reply_text(
-                    f"#{product_id}\nProduk: {name}\nHarga: Rp{price:,}\nStok: {stock}",
+                    f"#{product_id}\n"
+                    f"Produk: {name}\n"
+                    f"Harga: Rp{price:,}\n"
+                    f"Status: {stock}\n"
+                    f"Stok digital tersedia: {stock_count}",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
@@ -288,7 +421,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for order_id, first_name, username, product_name, price, status in rows:
                 keyboard = [
                     [
-                        InlineKeyboardButton("✅ Tandai Paid", callback_data=f"paid_{order_id}"),
+                        InlineKeyboardButton("✅ Tandai Paid + Kirim", callback_data=f"paid_{order_id}"),
                         InlineKeyboardButton("❌ Batalkan", callback_data=f"cancel_{order_id}")
                     ]
                 ]
@@ -303,12 +436,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
         elif text == "📊 Laporan":
-            total_products, total_orders, pending, paid, cancelled, revenue = laporan_data()
+            total_products, total_orders, pending, paid, cancelled, revenue, available_stock = laporan_data()
 
             await update.message.reply_text(
                 "📊 LAPORAN\n\n"
                 f"💰 Total Revenue: Rp{revenue:,}\n"
                 f"📦 Total Produk: {total_products}\n"
+                f"📥 Stok Digital Ready: {available_stock}\n"
                 f"🧾 Total Order: {total_orders}\n"
                 f"⏳ Pending Payment: {pending}\n"
                 f"✅ Paid: {paid}\n"
@@ -355,7 +489,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         for product_id, name, price, stock in products:
-            if stock.lower() == "kosong":
+            stock_count = get_stock_count(product_id)
+
+            if stock.lower() == "kosong" or stock_count <= 0:
                 button_text = "❌ Stok Kosong"
                 callback = "noop"
             else:
@@ -363,7 +499,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback = f"order_{product_id}"
 
             await update.message.reply_text(
-                f"📦 {name}\n💰 Harga: Rp{price:,}\n📌 Stok: {stock}",
+                f"📦 {name}\n💰 Harga: Rp{price:,}\n📌 Stok: {stock}\n📥 Ready: {stock_count}",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(button_text, callback_data=callback)]
                 ])
@@ -377,7 +513,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = "📦 LIST PRODUK\n\n"
         for product_id, name, price, stock in products:
-            msg += f"#{product_id} - {name}\nStok: {stock}\n\n"
+            stock_count = get_stock_count(product_id)
+            msg += f"#{product_id} - {name}\nStok: {stock}\nReady: {stock_count}\n\n"
 
         await update.message.reply_text(msg, reply_markup=user_menu())
 
@@ -389,7 +526,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = "💰 DAFTAR HARGA\n\n"
         for product_id, name, price, stock in products:
-            msg += f"{name}: Rp{price:,}\nStok: {stock}\n\n"
+            stock_count = get_stock_count(product_id)
+            msg += f"{name}: Rp{price:,}\nStok: {stock}\nReady: {stock_count}\n\n"
 
         await update.message.reply_text(msg, reply_markup=user_menu())
 
@@ -423,12 +561,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         _, name, price, stock = product
+        stock_count = get_stock_count(product_id)
 
-        if stock.lower() == "kosong":
+        if stock.lower() == "kosong" or stock_count <= 0:
             await query.edit_message_text("Maaf, stok produk ini kosong.")
             return
 
-        order_id = create_order(user, name, price)
+        order_id = create_order(user, product_id, name, price)
         username = user.username if user.username else "tidak_ada"
 
         await query.edit_message_text(
@@ -442,7 +581,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"https://t.me/{ADMIN_USERNAME}"
         )
 
-        if QRIS_IMAGE_URL and QRIS_IMAGE_URL != "ISI_LINK_GAMBAR_QRIS_KAMU":
+        if QRIS_IMAGE_URL:
             await context.bot.send_photo(
                 chat_id=user.id,
                 photo=QRIS_IMAGE_URL,
@@ -461,7 +600,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"User: {user.first_name} (@{username})\n"
                 f"Produk: {name}\n"
                 f"Harga: Rp{price:,}\n"
-                f"Status: Menunggu pembayaran"
+                f"Status: Menunggu pembayaran\n\n"
+                "Masuk menu 🧾 Transaksi lalu klik ✅ Tandai Paid + Kirim."
             )
         )
         return
@@ -482,8 +622,45 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("paid_"):
         order_id = int(data.split("_")[1])
-        update_order_status(order_id, "paid")
-        await query.edit_message_text(f"✅ Order #{order_id} ditandai PAID.")
+        order = get_order(order_id)
+
+        if not order:
+            await query.edit_message_text("Order tidak ditemukan.")
+            return
+
+        _, user_id, first_name, username, product_id, product_name, price, status = order
+
+        if status == "paid":
+            await query.edit_message_text(f"Order #{order_id} sudah paid.")
+            return
+
+        stock_item = take_available_stock(product_id)
+
+        if not stock_item:
+            await query.edit_message_text(
+                f"❌ Tidak ada stok digital tersedia untuk produk {product_name}.\n"
+                "Tambahkan stok dulu lewat 📦 Produk → 📥 Tambah Stok Digital."
+            )
+            return
+
+        stock_id, content = stock_item
+        update_order_paid(order_id, delivered_stock_id=stock_id)
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"✅ Pembayaran dikonfirmasi!\n\n"
+                f"Order #{order_id}\n"
+                f"Produk: {product_name}\n\n"
+                f"Berikut data digital kamu:\n\n"
+                f"{content}\n\n"
+                "Terima kasih sudah order di IKATJANJI."
+            )
+        )
+
+        await query.edit_message_text(
+            f"✅ Order #{order_id} PAID dan stok digital sudah dikirim ke user."
+        )
 
     elif data.startswith("cancel_"):
         order_id = int(data.split("_")[1])
@@ -500,5 +677,5 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Bot JakhisStore QRIS + switch mode running...")
+    print("Bot IKATJANJI auto delivery running...")
     app.run_polling()
