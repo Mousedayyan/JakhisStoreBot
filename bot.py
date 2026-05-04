@@ -4,7 +4,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-ADMIN_USERNAME = "@jakhis"
+ADMIN_USERNAME = "@jakhis27"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
