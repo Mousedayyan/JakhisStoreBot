@@ -1,14 +1,104 @@
 import os
+import sqlite3
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-ADMIN_USERNAME = "jakhis27"  # tanpa @
+ADMIN_USERNAME = "jakhis27"
 
-users = set()
-orders = []
-total_revenue = 0
+DB_NAME = "jakhisstore.db"
+
+
+def db():
+    return sqlite3.connect(DB_NAME)
+
+
+def init_db():
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        first_name TEXT,
+        username TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        first_name TEXT,
+        username TEXT,
+        order_text TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def save_user(user):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO users (user_id, first_name, username) VALUES (?, ?, ?)",
+        (user.id, user.first_name, user.username or "")
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_order(user, text):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO orders (user_id, first_name, username, order_text) VALUES (?, ?, ?, ?)",
+        (user.id, user.first_name, user.username or "", text)
+    )
+    order_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return order_id
+
+
+def laporan_data():
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM users")
+    total_users = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM orders")
+    total_orders = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")
+    pending = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='success'")
+    success = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='cancel'")
+    cancel = cur.fetchone()[0]
+
+    conn.close()
+
+    return total_users, total_orders, pending, success, cancel
+
+
+def admin_menu():
+    keyboard = [
+        ["📦 Produk", "🧩 Varian & Harga"],
+        ["📦 Stok/Inventory", "🧾 Transaksi"],
+        ["📊 Laporan", "📣 Broadcast"],
+        ["💰 Wallet Tools", "⚙️ Settings"],
+        ["👥 Mode User"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 def user_menu():
@@ -20,22 +110,9 @@ def user_menu():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def admin_menu():
-    keyboard = [
-        ["📦 Produk", "🧩 Varian & Harga"],
-        ["📦 Stok/Inventory", "🖼 Banner Global"],
-        ["📜 SNK", "🧾 Transaksi"],
-        ["📊 Laporan", "📣 Broadcast"],
-        ["💰 Wallet Tools", "⚙️ Settings"],
-        ["⏳ Perpanjang Sewa", "🧰 Tools"],
-        ["👥 Mode User"]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
-    users.add(user.id)
+    save_user(user)
 
     if user.id == ADMIN_ID:
         await update.message.reply_text(
@@ -50,25 +127,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global total_revenue
-
     text = update.message.text
     user = update.message.from_user
-    users.add(user.id)
+    save_user(user)
 
-    # ADMIN PANEL
     if user.id == ADMIN_ID:
         if text == "📊 Laporan":
+            total_users, total_orders, pending, success, cancel = laporan_data()
+
             await update.message.reply_text(
-                "📊 LAPORAN: Bulan Ini\n\n"
+                "📊 LAPORAN DATABASE\n\n"
                 "┌────────────────────\n"
-                f"💰 Total Revenue: Rp {total_revenue:,}\n"
-                f"📦 Item Terjual: {len(orders)} pcs\n"
-                f"✅ Transaksi Sukses: {len(orders)}\n"
-                "⏳ Pending: 0\n"
-                "⌛ Expired: 0\n"
-                "❌ Dibatalkan: 0\n"
-                f"👥 User Baru: {len(users)}\n"
+                f"👥 Total User: {total_users}\n"
+                f"📦 Total Order: {total_orders}\n"
+                f"⏳ Pending: {pending}\n"
+                f"✅ Sukses: {success}\n"
+                f"❌ Batal: {cancel}\n"
                 "└────────────────────",
                 reply_markup=admin_menu()
             )
@@ -107,27 +181,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         elif text == "🧾 Transaksi":
-            if not orders:
-                await update.message.reply_text(
-                    "🧾 TRANSAKSI\n\nBelum ada transaksi.",
-                    reply_markup=admin_menu()
-                )
+            conn = db()
+            cur = conn.cursor()
+            cur.execute("SELECT id, first_name, username, status FROM orders ORDER BY id DESC LIMIT 5")
+            rows = cur.fetchall()
+            conn.close()
+
+            if not rows:
+                await update.message.reply_text("🧾 Belum ada transaksi.", reply_markup=admin_menu())
             else:
-                await update.message.reply_text(
-                    "🧾 TRANSAKSI TERBARU\n\n" + "\n\n".join(orders[-5:]),
-                    reply_markup=admin_menu()
-                )
+                msg = "🧾 TRANSAKSI TERBARU\n\n"
+                for r in rows:
+                    msg += f"#{r[0]} | {r[1]} | @{r[2]} | {r[3]}\n"
+
+                await update.message.reply_text(msg, reply_markup=admin_menu())
 
         elif text == "📣 Broadcast":
             await update.message.reply_text(
-                "📣 BROADCAST\n\nFitur broadcast belum aktif.",
+                "📣 Broadcast belum aktif. Next step kita aktifkan.",
                 reply_markup=admin_menu()
             )
 
         elif text == "⚙️ Settings":
             await update.message.reply_text(
                 "⚙️ SETTINGS\n\n"
-                "Status: Online\n"
+                "Database: SQLite aktif\n"
                 "Hosting: Railway\n"
                 f"Admin: @{ADMIN_USERNAME}",
                 reply_markup=admin_menu()
@@ -141,13 +219,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         else:
             await update.message.reply_text(
-                "Pilih menu admin yang tersedia.",
+                "Menu admin belum aktif / pilih tombol yang tersedia.",
                 reply_markup=admin_menu()
             )
 
         return
 
-    # USER MENU
     if text == "📦 List Produk":
         await update.message.reply_text(
             "📦 LIST PRODUK\n\n"
@@ -196,20 +273,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif "order" in text.lower():
-        order_text = (
+        order_id = save_order(user, text)
+
+        username = user.username if user.username else "tidak_ada"
+
+        pesan_admin = (
+            "🔥 ORDER MASUK 🔥\n\n"
+            f"ID Order: #{order_id}\n"
             f"Nama Telegram: {user.first_name}\n"
-            f"Username: @{user.username if user.username else 'tidak_ada'}\n"
+            f"Username: @{username}\n\n"
             f"Isi Order:\n{text}"
         )
-        orders.append(order_text)
 
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text="🔥 ORDER MASUK 🔥\n\n" + order_text
-        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=pesan_admin)
 
         await update.message.reply_text(
-            "✅ Order diterima!\nAdmin akan segera menghubungi kamu."
+            f"✅ Order diterima!\nID Order kamu: #{order_id}\nAdmin akan segera menghubungi kamu."
         )
 
     else:
@@ -217,10 +296,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
+    init_db()
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot JakhisStore admin panel running...")
+    print("Bot JakhisStore database running...")
     app.run_polling()
