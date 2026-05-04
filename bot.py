@@ -56,7 +56,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif text == "👤 Hubungi Admin":
-        await update.message.reply_text(f"Chat admin: {ADMIN_USERNAME}")
+        await update.message.reply_text(f"Chat admin: https://t.me/jakhis27")
 
     elif text == "❓ FAQ":
         await update.message.reply_text(
