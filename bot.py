@@ -55,9 +55,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Durasi:"
         )
 
-    elif text == "👤 Hubungi Admin":
-        await update.message.reply_text(f"Chat admin: https://t.me/jakhis27")
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+elif text == "👤 Hubungi Admin":
+    keyboard = [
+        [InlineKeyboardButton("💬 Chat Admin", url="https://t.me/jakhis27")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "Klik tombol di bawah untuk chat admin 👇",
+        reply_markup=reply_markup
+    )
     elif text == "❓ FAQ":
         await update.message.reply_text(
             "❓ FAQ\n\n"
