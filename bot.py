@@ -18,32 +18,11 @@ def init_db():
     cur = conn.cursor()
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        first_name TEXT,
-        username TEXT
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        first_name TEXT,
-        username TEXT,
-        order_text TEXT,
-        status TEXT DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    cur.execute("""
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         price INTEGER,
-        stock TEXT DEFAULT 'Tersedia',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        stock TEXT DEFAULT 'Tersedia'
     )
     """)
 
@@ -51,24 +30,10 @@ def init_db():
     conn.close()
 
 
-def save_user(user):
+def add_product(name, price):
     conn = db()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT OR IGNORE INTO users (user_id, first_name, username) VALUES (?, ?, ?)",
-        (user.id, user.first_name, user.username or "")
-    )
-    conn.commit()
-    conn.close()
-
-
-def add_product(name, price, stock="Tersedia"):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO products (name, price, stock) VALUES (?, ?, ?)",
-        (name, price, stock)
-    )
+    cur.execute("INSERT INTO products (name, price) VALUES (?, ?)", (name, price))
     conn.commit()
     conn.close()
 
@@ -76,275 +41,114 @@ def add_product(name, price, stock="Tersedia"):
 def get_products():
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, price, stock FROM products ORDER BY id DESC")
-    rows = cur.fetchall()
+    cur.execute("SELECT id, name, price, stock FROM products")
+    data = cur.fetchall()
     conn.close()
-    return rows
+    return data
 
 
-def save_order(user, text):
+def delete_product(pid):
     conn = db()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO orders (user_id, first_name, username, order_text) VALUES (?, ?, ?, ?)",
-        (user.id, user.first_name, user.username or "", text)
-    )
-    order_id = cur.lastrowid
+    cur.execute("DELETE FROM products WHERE id=?", (pid,))
     conn.commit()
     conn.close()
-    return order_id
 
 
-def laporan_data():
+def update_price(pid, price):
     conn = db()
     cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM users")
-    total_users = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM orders")
-    total_orders = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")
-    pending = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status='success'")
-    success = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status='cancel'")
-    cancel = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM products")
-    total_products = cur.fetchone()[0]
-
+    cur.execute("UPDATE products SET price=? WHERE id=?", (price, pid))
+    conn.commit()
     conn.close()
-    return total_users, total_orders, pending, success, cancel, total_products
+
+
+def update_stock(pid, stock):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE products SET stock=? WHERE id=?", (stock, pid))
+    conn.commit()
+    conn.close()
 
 
 def admin_menu():
     keyboard = [
-        ["📦 Produk", "➕ Tambah Produk"],
-        ["📋 List Produk DB", "🧩 Varian & Harga"],
-        ["📦 Stok/Inventory", "🧾 Transaksi"],
-        ["📊 Laporan", "📣 Broadcast"],
-        ["💰 Wallet Tools", "⚙️ Settings"],
-        ["👥 Mode User"]
+        ["➕ Tambah Produk", "📋 List Produk"],
+        ["🗑 Hapus Produk", "✏️ Edit Harga"],
+        ["🔄 Edit Stok"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
-def user_menu():
-    keyboard = [
-        ["📦 List Produk", "💰 Harga"],
-        ["🛒 Cara Order", "👤 Hubungi Admin"],
-        ["❓ FAQ", "✅ Garansi"]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
-def format_products(show_price=True):
-    products = get_products()
-
-    if not products:
-        return (
-            "📦 Belum ada produk di database.\n\n"
-            "Admin bisa tambah produk lewat menu:\n"
-            "➕ Tambah Produk"
-        )
-
-    msg = "📦 LIST PRODUK\n\n"
-    for product_id, name, price, stock in products:
-        if show_price:
-            msg += f"#{product_id} - {name}\nHarga: Rp {price:,}\nStok: {stock}\n\n"
-        else:
-            msg += f"#{product_id} - {name}\nStok: {stock}\n\n"
-
-    return msg
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    save_user(user)
-    context.user_data.clear()
+    user_id = update.message.from_user.id
 
-    if user.id == ADMIN_ID:
-        await update.message.reply_text(
-            "👑 Admin Panel JakhisStore\n\nSilakan pilih menu:",
-            reply_markup=admin_menu()
-        )
+    if user_id == ADMIN_ID:
+        await update.message.reply_text("👑 Admin Panel", reply_markup=admin_menu())
     else:
-        await update.message.reply_text(
-            "Selamat datang di JakhisStore 👋\n\nSilakan pilih menu:",
-            reply_markup=user_menu()
-        )
+        await update.message.reply_text("User menu aktif")
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    user = update.message.from_user
-    save_user(user)
+    user_id = update.message.from_user.id
 
-    if user.id == ADMIN_ID:
-        mode = context.user_data.get("mode")
-
-        if mode == "add_product_name":
-            context.user_data["new_product_name"] = text
-            context.user_data["mode"] = "add_product_price"
-            await update.message.reply_text(
-                "Masukkan harga produk angka saja.\n\nContoh:\n25000"
-            )
-            return
-
-        if mode == "add_product_price":
-            try:
-                price = int(text.replace(".", "").replace(",", ""))
-            except ValueError:
-                await update.message.reply_text("Harga harus angka.\n\nContoh:\n25000")
-                return
-
-            name = context.user_data.get("new_product_name")
-            add_product(name, price)
-            context.user_data.clear()
-
-            await update.message.reply_text(
-                f"✅ Produk berhasil ditambahkan!\n\n"
-                f"Nama: {name}\n"
-                f"Harga: Rp {price:,}\n"
-                f"Stok: Tersedia",
-                reply_markup=admin_menu()
-            )
-            return
-
-        if text == "➕ Tambah Produk":
-            context.user_data["mode"] = "add_product_name"
-            await update.message.reply_text(
-                "➕ TAMBAH PRODUK\n\n"
-                "Masukkan nama produk.\n\n"
-                "Contoh:\nNetflix Premium 1 Bulan"
-            )
-
-        elif text == "📋 List Produk DB":
-            await update.message.reply_text(format_products(True), reply_markup=admin_menu())
-
-        elif text == "📦 Produk":
-            await update.message.reply_text(format_products(False), reply_markup=admin_menu())
-
-        elif text == "🧩 Varian & Harga":
-            await update.message.reply_text(format_products(True), reply_markup=admin_menu())
-
-        elif text == "📦 Stok/Inventory":
-            products = get_products()
-            if not products:
-                await update.message.reply_text("📦 Belum ada stok produk.", reply_markup=admin_menu())
-            else:
-                msg = "📦 STOK / INVENTORY\n\n"
-                for product_id, name, price, stock in products:
-                    msg += f"#{product_id} - {name}: {stock}\n"
-                await update.message.reply_text(msg, reply_markup=admin_menu())
-
-        elif text == "📊 Laporan":
-            total_users, total_orders, pending, success, cancel, total_products = laporan_data()
-            await update.message.reply_text(
-                "📊 LAPORAN DATABASE\n\n"
-                "┌────────────────────\n"
-                f"👥 Total User: {total_users}\n"
-                f"📦 Total Produk: {total_products}\n"
-                f"🧾 Total Order: {total_orders}\n"
-                f"⏳ Pending: {pending}\n"
-                f"✅ Sukses: {success}\n"
-                f"❌ Batal: {cancel}\n"
-                "└────────────────────",
-                reply_markup=admin_menu()
-            )
-
-        elif text == "🧾 Transaksi":
-            conn = db()
-            cur = conn.cursor()
-            cur.execute("SELECT id, first_name, username, status FROM orders ORDER BY id DESC LIMIT 5")
-            rows = cur.fetchall()
-            conn.close()
-
-            if not rows:
-                await update.message.reply_text("🧾 Belum ada transaksi.", reply_markup=admin_menu())
-            else:
-                msg = "🧾 TRANSAKSI TERBARU\n\n"
-                for row in rows:
-                    msg += f"#{row[0]} | {row[1]} | @{row[2]} | {row[3]}\n"
-                await update.message.reply_text(msg, reply_markup=admin_menu())
-
-        elif text == "📣 Broadcast":
-            await update.message.reply_text("📣 Broadcast belum aktif. Next step kita aktifkan.", reply_markup=admin_menu())
-
-        elif text == "💰 Wallet Tools":
-            await update.message.reply_text("💰 Wallet Tools belum aktif.\nNanti bisa isi DANA/OVO/Gopay/QRIS.", reply_markup=admin_menu())
-
-        elif text == "⚙️ Settings":
-            await update.message.reply_text(
-                "⚙️ SETTINGS\n\n"
-                "Database: SQLite aktif\n"
-                "Produk DB: aktif\n"
-                "Hosting: Railway\n"
-                f"Admin: @{ADMIN_USERNAME}",
-                reply_markup=admin_menu()
-            )
-
-        elif text == "👥 Mode User":
-            await update.message.reply_text("Mode user aktif.", reply_markup=user_menu())
-
-        else:
-            await update.message.reply_text("Menu admin belum aktif / pilih tombol yang tersedia.", reply_markup=admin_menu())
-
+    if user_id != ADMIN_ID:
         return
 
-    if text == "📦 List Produk":
-        await update.message.reply_text(format_products(False))
+    # TAMBAH PRODUK
+    if text == "➕ Tambah Produk":
+        context.user_data["mode"] = "nama"
+        await update.message.reply_text("Masukkan nama produk")
 
-    elif text == "💰 Harga":
-        await update.message.reply_text(format_products(True))
+    elif context.user_data.get("mode") == "nama":
+        context.user_data["nama"] = text
+        context.user_data["mode"] = "harga"
+        await update.message.reply_text("Masukkan harga")
 
-    elif text == "🛒 Cara Order":
-        await update.message.reply_text(
-            "🛒 CARA ORDER\n\n"
-            "Ketik format ini:\n\n"
-            "ORDER\n"
-            "Nama:\n"
-            "Produk:\n"
-            "Durasi:"
-        )
+    elif context.user_data.get("mode") == "harga":
+        harga = int(text)
+        add_product(context.user_data["nama"], harga)
+        context.user_data.clear()
+        await update.message.reply_text("Produk ditambahkan ✅")
 
-    elif text == "👤 Hubungi Admin":
-        await update.message.reply_text(f"Hubungi admin: https://t.me/{ADMIN_USERNAME}")
+    # LIST PRODUK
+    elif text == "📋 List Produk":
+        data = get_products()
+        msg = ""
+        for p in data:
+            msg += f"{p[0]}. {p[1]} - Rp{p[2]} ({p[3]})\n"
+        await update.message.reply_text(msg or "Kosong")
 
-    elif text == "❓ FAQ":
-        await update.message.reply_text(
-            "❓ FAQ\n\n"
-            "Akun aktif setelah pembayaran dikonfirmasi.\n"
-            "Jika ada kendala, hubungi admin."
-        )
+    # HAPUS PRODUK
+    elif text.startswith("HAPUS"):
+        try:
+            pid = int(text.split()[1])
+            delete_product(pid)
+            await update.message.reply_text("Produk dihapus ✅")
+        except:
+            await update.message.reply_text("Format: HAPUS ID")
 
-    elif text == "✅ Garansi":
-        await update.message.reply_text("✅ Garansi berlaku selama masa aktif.")
+    # EDIT HARGA
+    elif text.startswith("HARGA"):
+        try:
+            _, pid, harga = text.split()
+            update_price(int(pid), int(harga))
+            await update.message.reply_text("Harga diupdate ✅")
+        except:
+            await update.message.reply_text("Format: HARGA ID HARGA")
 
-    elif "order" in text.lower():
-        order_id = save_order(user, text)
-        username = user.username if user.username else "tidak_ada"
-
-        pesan_admin = (
-            "🔥 ORDER MASUK 🔥\n\n"
-            f"ID Order: #{order_id}\n"
-            f"Nama Telegram: {user.first_name}\n"
-            f"Username: @{username}\n\n"
-            f"Isi Order:\n{text}"
-        )
-
-        await context.bot.send_message(chat_id=ADMIN_ID, text=pesan_admin)
-
-        await update.message.reply_text(
-            f"✅ Order diterima!\nID Order kamu: #{order_id}\nAdmin akan segera menghubungi kamu."
-        )
+    # EDIT STOK
+    elif text.startswith("STOK"):
+        try:
+            _, pid, *stok = text.split()
+            update_stock(int(pid), " ".join(stok))
+            await update.message.reply_text("Stok diupdate ✅")
+        except:
+            await update.message.reply_text("Format: STOK ID STATUS")
 
     else:
-        await update.message.reply_text("❗ Pilih menu yang tersedia.")
+        await update.message.reply_text("Gunakan menu / format yang benar")
 
 
 if __name__ == "__main__":
@@ -353,7 +157,7 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT, handle))
 
-    print("Bot JakhisStore produk database running...")
+    print("Bot running...")
     app.run_polling()
