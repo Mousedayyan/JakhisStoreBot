@@ -421,7 +421,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"https://t.me/{ADMIN_USERNAME}"
         )
 
-        if QRIS_IMAGE_URL and QRIS_IMAGE_URL != "ISI_LINK_GAMBAR_QRIS_KAMU":
+        if QRIS_IMAGE_URL and QRIS_IMAGE_URL != "https://raw.githubusercontent.com/Mousedayyan/JakhisStoreBot/main/qris.jpg":
             await context.bot.send_photo(
                 chat_id=user.id,
                 photo=QRIS_IMAGE_URL,
