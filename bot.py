@@ -1,19 +1,7 @@
 import os
 import sqlite3
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
-)
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
@@ -27,16 +15,14 @@ def db():
 def init_db():
     conn = db()
     cur = conn.cursor()
-
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        price INTEGER,
-        stock TEXT DEFAULT 'Tersedia'
-    )
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            stock TEXT DEFAULT 'Tersedia'
+        )
     """)
-
     conn.commit()
     conn.close()
 
@@ -72,10 +58,7 @@ def delete_product(product_id):
 def update_stock(product_id, stock):
     conn = db()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE products SET stock = ? WHERE id = ?",
-        (stock, product_id)
-    )
+    cur.execute("UPDATE products SET stock = ? WHERE id = ?", (stock, product_id))
     conn.commit()
     conn.close()
 
@@ -83,10 +66,7 @@ def update_stock(product_id, stock):
 def update_price(product_id, price):
     conn = db()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE products SET price = ? WHERE id = ?",
-        (price, product_id)
-    )
+    cur.execute("UPDATE products SET price = ? WHERE id = ?", (price, product_id))
     conn.commit()
     conn.close()
 
@@ -110,8 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "Selamat datang di JakhisStore 👋\n\n"
-            "Silakan hubungi admin untuk order."
+            "Selamat datang di JakhisStore 👋\n\nSilakan hubungi admin untuk order."
         )
 
 
@@ -143,10 +122,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
 
         await update.message.reply_text(
-            f"✅ Produk berhasil ditambahkan!\n\n"
-            f"Produk: {name}\n"
-            f"Harga: Rp{price:,}\n"
-            f"Stok: Tersedia",
+            f"✅ Produk berhasil ditambahkan!\n\nProduk: {name}\nHarga: Rp{price:,}\nStok: Tersedia",
             reply_markup=admin_menu()
         )
         return
@@ -189,7 +165,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["edit_stock_id"] = product_id
         context.user_data["mode"] = "edit_stock_value"
-        await update.message.reply_text("Ketik stok baru:\nTersedia\natau\nKosong")
+        await update.message.reply_text("Ketik stok baru: Tersedia / Kosong")
         return
 
     if mode == "edit_stock_value":
@@ -222,9 +198,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "➕ Tambah Produk":
         context.user_data["mode"] = "add_name"
-        await update.message.reply_text(
-            "➕ Tambah Produk\n\nMasukkan nama produk.\nContoh: Netflix Premium 1 Bulan"
-        )
+        await update.message.reply_text("Masukkan nama produk.\nContoh: Netflix Premium 1 Bulan")
 
     elif text == "📋 List Produk":
         products = get_products()
@@ -245,48 +219,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
 
             await update.message.reply_text(
-                f"#{product_id}\n"
-                f"Produk: {name}\n"
-                f"Harga: Rp{price:,}\n"
-                f"Stok: {stock}",
+                f"#{product_id}\nProduk: {name}\nHarga: Rp{price:,}\nStok: {stock}",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
     elif text == "✏️ Edit Harga":
         context.user_data["mode"] = "edit_price_id"
-        await update.message.reply_text(
-            "Masukkan ID produk yang mau diedit harganya.\n\n"
-            "Cek ID dari menu 📋 List Produk."
-        )
+        await update.message.reply_text("Masukkan ID produk yang mau diedit harganya.")
 
     elif text == "🔄 Edit Stok":
         context.user_data["mode"] = "edit_stock_id"
-        await update.message.reply_text(
-            "Masukkan ID produk yang mau diedit stoknya.\n\n"
-            "Cek ID dari menu 📋 List Produk."
-        )
+        await update.message.reply_text("Masukkan ID produk yang mau diedit stoknya.")
 
     elif text == "🗑 Hapus Produk":
         context.user_data["mode"] = "delete_id"
-        await update.message.reply_text(
-            "Masukkan ID produk yang mau dihapus.\n\n"
-            "Cek ID dari menu 📋 List Produk."
-        )
+        await update.message.reply_text("Masukkan ID produk yang mau dihapus.")
 
     else:
-        await update.message.reply_text(
-            "Pilih menu yang tersedia.",
-            reply_markup=admin_menu()
-        )
+        await update.message.reply_text("Pilih menu yang tersedia.", reply_markup=admin_menu())
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
-
-    if user_id != ADMIN_ID:
+    if query.from_user.id != ADMIN_ID:
         await query.edit_message_text("Kamu bukan admin.")
         return
 
@@ -295,20 +252,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("delete_"):
         product_id = int(data.split("_")[1])
         delete_product(product_id)
-
-        await query.edit_message_text(
-            f"🗑 Produk #{product_id} berhasil dihapus."
-        )
+        await query.edit_message_text(f"🗑 Produk #{product_id} berhasil dihapus.")
 
     elif data.startswith("stock_"):
         _, product_id, stock = data.split("_")
         product_id = int(product_id)
-
         update_stock(product_id, stock)
-
-        await query.edit_message_text(
-            f"✅ Stok produk #{product_id} diubah jadi: {stock}"
-        )
+        await query.edit_message_text(f"✅ Stok produk #{product_id} diubah jadi: {stock}")
 
 
 if __name__ == "__main__":
@@ -320,5 +270,5 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Bot JakhisStore product manager running...")
+    print("Bot JakhisStore final running...")
     app.run_polling()
