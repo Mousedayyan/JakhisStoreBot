@@ -1,33 +1,17 @@
 import os
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-ADMIN_USERNAME = "@jakhis27"
+ADMIN_USERNAME = "jakhis27"  # tanpa @
 
+users = set()
+orders = []
 total_revenue = 0
-item_terjual = 0
-transaksi_sukses = 0
-pending = 0
-expired = 0
-dibatalkan = 0
-user_baru = set()
 
 
-def admin_keyboard():
-    keyboard = [
-        ["📦 Produk", "🧩 Varian & Harga"],
-        ["📦 Stok/Inventory", "🖼 Banner Global"],
-        ["📜 SNK", "🧾 Transaksi"],
-        ["📊 Laporan", "📣 Broadcast"],
-        ["💰 Wallet Tools", "⚙️ Settings"],
-        ["⏳ Perpanjang Sewa", "🧰 Tools"],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
-def user_keyboard():
+def user_menu():
     keyboard = [
         ["📦 List Produk", "💰 Harga"],
         ["🛒 Cara Order", "👤 Hubungi Admin"],
@@ -36,47 +20,58 @@ def user_keyboard():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_baru.add(user_id)
+def admin_menu():
+    keyboard = [
+        ["📦 Produk", "🧩 Varian & Harga"],
+        ["📦 Stok/Inventory", "🖼 Banner Global"],
+        ["📜 SNK", "🧾 Transaksi"],
+        ["📊 Laporan", "📣 Broadcast"],
+        ["💰 Wallet Tools", "⚙️ Settings"],
+        ["⏳ Perpanjang Sewa", "🧰 Tools"],
+        ["👥 Mode User"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    if user_id == ADMIN_ID:
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    users.add(user.id)
+
+    if user.id == ADMIN_ID:
         await update.message.reply_text(
             "👑 Admin Panel JakhisStore\n\nSilakan pilih menu:",
-            reply_markup=admin_keyboard()
+            reply_markup=admin_menu()
         )
     else:
         await update.message.reply_text(
-            "Halo! Selamat datang di JakhisStore 👋\n\n"
-            "Kami menyediakan app premium seperti Netflix, Spotify, YouTube Premium, Canva, dan lainnya.\n\n"
-            "Silakan pilih menu:",
-            reply_markup=user_keyboard()
+            "Selamat datang di JakhisStore 👋\n\nSilakan pilih menu:",
+            reply_markup=user_menu()
         )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global total_revenue, item_terjual, transaksi_sukses, pending, expired, dibatalkan
+    global total_revenue
 
     text = update.message.text
     user = update.message.from_user
-    user_baru.add(user.id)
+    users.add(user.id)
 
-    # ADMIN MENU
+    # ADMIN PANEL
     if user.id == ADMIN_ID:
         if text == "📊 Laporan":
-            laporan = (
+            await update.message.reply_text(
                 "📊 LAPORAN: Bulan Ini\n\n"
                 "┌────────────────────\n"
                 f"💰 Total Revenue: Rp {total_revenue:,}\n"
-                f"📦 Item Terjual: {item_terjual} pcs\n"
-                f"✅ Transaksi Sukses: {transaksi_sukses}\n"
-                f"⏳ Pending: {pending}\n"
-                f"⌛ Expired: {expired}\n"
-                f"❌ Dibatalkan: {dibatalkan}\n"
-                f"👥 User Baru: {len(user_baru)}\n"
-                "└────────────────────"
+                f"📦 Item Terjual: {len(orders)} pcs\n"
+                f"✅ Transaksi Sukses: {len(orders)}\n"
+                "⏳ Pending: 0\n"
+                "⌛ Expired: 0\n"
+                "❌ Dibatalkan: 0\n"
+                f"👥 User Baru: {len(users)}\n"
+                "└────────────────────",
+                reply_markup=admin_menu()
             )
-            await update.message.reply_text(laporan, reply_markup=admin_keyboard())
 
         elif text == "📦 Produk":
             await update.message.reply_text(
@@ -86,18 +81,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "3. YouTube Premium\n"
                 "4. Canva Pro\n"
                 "5. CapCut Pro",
-                reply_markup=admin_keyboard()
+                reply_markup=admin_menu()
             )
 
         elif text == "🧩 Varian & Harga":
             await update.message.reply_text(
                 "🧩 VARIAN & HARGA\n\n"
                 "Netflix: Rp25.000 / bulan\n"
-                "Spotify: Rp15.000 / bulan\n"
-                "YouTube Premium: Rp10.000 / bulan\n"
-                "Canva Pro: Rp10.000 / bulan\n"
-                "CapCut Pro: Rp15.000 / bulan",
-                reply_markup=admin_keyboard()
+                "Spotify: Rp20.000 / bulan\n"
+                "YouTube: Rp15.000 / bulan\n"
+                "Canva: Rp10.000 / bulan\n"
+                "CapCut: Rp10.000 / bulan",
+                reply_markup=admin_menu()
             )
 
         elif text == "📦 Stok/Inventory":
@@ -105,34 +100,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📦 STOK / INVENTORY\n\n"
                 "Netflix: Tersedia\n"
                 "Spotify: Tersedia\n"
-                "YouTube Premium: Tersedia\n"
-                "Canva Pro: Tersedia\n"
-                "CapCut Pro: Tersedia",
-                reply_markup=admin_keyboard()
+                "YouTube: Tersedia\n"
+                "Canva: Tersedia\n"
+                "CapCut: Tersedia",
+                reply_markup=admin_menu()
             )
 
         elif text == "🧾 Transaksi":
-            await update.message.reply_text(
-                "🧾 TRANSAKSI\n\nBelum ada database transaksi.\nNanti bisa kita upgrade otomatis.",
-                reply_markup=admin_keyboard()
-            )
+            if not orders:
+                await update.message.reply_text(
+                    "🧾 TRANSAKSI\n\nBelum ada transaksi.",
+                    reply_markup=admin_menu()
+                )
+            else:
+                await update.message.reply_text(
+                    "🧾 TRANSAKSI TERBARU\n\n" + "\n\n".join(orders[-5:]),
+                    reply_markup=admin_menu()
+                )
 
         elif text == "📣 Broadcast":
             await update.message.reply_text(
-                "📣 BROADCAST\n\nFitur broadcast belum aktif.\nNanti bisa kita tambah supaya admin bisa kirim pesan ke semua user.",
-                reply_markup=admin_keyboard()
+                "📣 BROADCAST\n\nFitur broadcast belum aktif.",
+                reply_markup=admin_menu()
             )
 
         elif text == "⚙️ Settings":
             await update.message.reply_text(
-                "⚙️ SETTINGS\n\nAdmin: aktif\nMode: online\nHosting: Railway",
-                reply_markup=admin_keyboard()
+                "⚙️ SETTINGS\n\n"
+                "Status: Online\n"
+                "Hosting: Railway\n"
+                f"Admin: @{ADMIN_USERNAME}",
+                reply_markup=admin_menu()
+            )
+
+        elif text == "👥 Mode User":
+            await update.message.reply_text(
+                "Mode user aktif.",
+                reply_markup=user_menu()
             )
 
         else:
             await update.message.reply_text(
-                "Menu admin belum aktif / pilih tombol yang tersedia.",
-                reply_markup=admin_keyboard()
+                "Pilih menu admin yang tersedia.",
+                reply_markup=admin_menu()
             )
 
         return
@@ -150,16 +160,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "💰 Harga":
         await update.message.reply_text(
-            "💰 DAFTAR HARGA\n\n"
-            "Netflix: 25k / bulan\n"
-            "Spotify: 15k / bulan\n"
-            "YouTube: 10k / bulan\n"
-            "Canva: 10k / bulan\n"
-            "CapCut: 15k / bulan"
+            "💰 HARGA\n\n"
+            "Netflix: 25k\n"
+            "Spotify: 20k\n"
+            "YouTube: 15k\n"
+            "Canva: 10k\n"
+            "CapCut: 10k"
         )
 
     elif text == "🛒 Cara Order":
         await update.message.reply_text(
+            "🛒 CARA ORDER\n\n"
             "Ketik format ini:\n\n"
             "ORDER\n"
             "Nama:\n"
@@ -168,42 +179,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif text == "👤 Hubungi Admin":
-        await update.message.reply_text(f"Hubungi admin: https://t.me/{ADMIN_USERNAME.replace('@', '')}")
+        await update.message.reply_text(
+            f"Hubungi admin: https://t.me/{ADMIN_USERNAME}"
+        )
 
     elif text == "❓ FAQ":
         await update.message.reply_text(
-            "❓ FAQ\n\nAkun aktif setelah pembayaran dikonfirmasi.\nJika ada kendala, hubungi admin."
+            "❓ FAQ\n\n"
+            "Akun aktif setelah pembayaran dikonfirmasi.\n"
+            "Jika ada kendala, hubungi admin."
         )
 
     elif text == "✅ Garansi":
-        await update.message.reply_text("✅ Garansi berlaku selama masa aktif jika akun bermasalah.")
-
-    elif "order" in text.lower():
-        pending += 1
-
-        username = user.username if user.username else "Tidak ada username"
-
-        pesan_admin = (
-            "🔥 ORDER MASUK 🔥\n\n"
-            f"Nama Telegram: {user.first_name}\n"
-            f"Username: @{username}\n\n"
-            f"Isi order:\n{text}"
+        await update.message.reply_text(
+            "✅ Garansi berlaku selama masa aktif."
         )
 
-        await context.bot.send_message(chat_id=ADMIN_ID, text=pesan_admin)
+    elif "order" in text.lower():
+        order_text = (
+            f"Nama Telegram: {user.first_name}\n"
+            f"Username: @{user.username if user.username else 'tidak_ada'}\n"
+            f"Isi Order:\n{text}"
+        )
+        orders.append(order_text)
+
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text="🔥 ORDER MASUK 🔥\n\n" + order_text
+        )
 
         await update.message.reply_text(
-            "✅ Order kamu sudah dikirim ke admin!\nTunggu konfirmasi ya."
+            "✅ Order diterima!\nAdmin akan segera menghubungi kamu."
         )
 
     else:
-        await update.message.reply_text("Pilih menu yang tersedia ya.")
+        await update.message.reply_text("❗ Pilih menu yang tersedia.")
 
 
-app = ApplicationBuilder().token(TOKEN).build()
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-print("Bot JakhisStore admin panel sedang berjalan...")
-app.run_polling()
+    print("Bot JakhisStore admin panel running...")
+    app.run_polling()
