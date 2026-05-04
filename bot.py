@@ -1,9 +1,9 @@
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-
-TOKEN = "8769554608:AAElSO_IIZOa037ugHSTx6oUmCMqTc2s7Qw"
+import os
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USERNAME = "@jakhis"
-ADMIN_ID = 6726907631  # ganti dengan ID kamu
+ADMIN_ID = int(os.getenv("ADMIN_ID"))  # ganti dengan ID kamu
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -57,7 +57,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await context.bot.send_message(chat_id=ADMIN_ID, text=pesan_admin)
-
+i
         await update.message.reply_text(
             "✅ Order kamu sudah dikirim ke admin!"
         )
