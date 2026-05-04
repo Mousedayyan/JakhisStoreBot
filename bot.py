@@ -8,7 +8,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 ADMIN_USERNAME = "jakhis27"
 PAYMENT_NAME = "JAKHIS STORE"
-QRIS_IMAGE_URL = "ISI_LINK_GAMBAR_QRIS_KAMU"
+QRIS_IMAGE_URL = "https://raw.githubusercontent.com/Mousedayyan/JakhisStoreBot/main/qris.jpg"
 
 DB_NAME = "jakhisstore.db"
 
@@ -169,7 +169,8 @@ def laporan_data():
 def admin_menu():
     keyboard = [
         ["📦 Produk", "📊 Laporan"],
-        ["🧾 Transaksi", "⚙️ Settings"]
+        ["🧾 Transaksi", "⚙️ Settings"],
+        ["👥 Mode User"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -185,7 +186,8 @@ def product_menu():
 def user_menu():
     keyboard = [
         ["🛒 Order Produk", "📦 List Produk"],
-        ["💰 Harga", "👤 Hubungi Admin"]
+        ["💰 Harga", "👤 Hubungi Admin"],
+        ["🔙 Mode Admin"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -210,7 +212,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.message.from_user
 
-    if user.id == ADMIN_ID:
+    admin_as_user = user.id == ADMIN_ID and context.user_data.get("view_mode") == "user"
+    is_admin_mode = user.id == ADMIN_ID and not admin_as_user
+
+    if is_admin_mode:
         mode = context.user_data.get("mode")
 
         if mode == "add_product_name":
@@ -320,12 +325,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=admin_menu()
             )
 
+        elif text == "👥 Mode User":
+            context.user_data.clear()
+            context.user_data["view_mode"] = "user"
+            await update.message.reply_text(
+                "👥 Mode User aktif.\n\nKetik /start untuk kembali ke Admin Panel.",
+                reply_markup=user_menu()
+            )
+
         else:
             await update.message.reply_text("Pilih menu admin.", reply_markup=admin_menu())
 
         return
 
     # USER MODE
+    if text == "🔙 Mode Admin" and user.id == ADMIN_ID:
+        context.user_data.clear()
+        await update.message.reply_text(
+            "👑 Kembali ke Admin Panel.",
+            reply_markup=admin_menu()
+        )
+        return
+
     if text == "🛒 Order Produk":
         products = get_products()
 
@@ -421,7 +442,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"https://t.me/{ADMIN_USERNAME}"
         )
 
-        if QRIS_IMAGE_URL and QRIS_IMAGE_URL != "https://raw.githubusercontent.com/Mousedayyan/JakhisStoreBot/main/qris.jpg":
+        if QRIS_IMAGE_URL and QRIS_IMAGE_URL != "ISI_LINK_GAMBAR_QRIS_KAMU":
             await context.bot.send_photo(
                 chat_id=user.id,
                 photo=QRIS_IMAGE_URL,
@@ -479,5 +500,5 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Bot JakhisStore QRIS payment running...")
+    print("Bot JakhisStore QRIS + switch mode running...")
     app.run_polling()
